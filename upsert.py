@@ -57,7 +57,7 @@ def resize_embedding(embedding, target_dim=1024):
 		return embedding[:target_dim]
 
 
-def normalize_records(raw_records, source="react_code_example"):
+def normalize_records(raw_records, source="normalized"):
 	"""
 	Chuẩn hóa dữ liệu về format:
 	{
@@ -69,20 +69,25 @@ def normalize_records(raw_records, source="react_code_example"):
 		"body": ...
 	}
 	"""
+	# If records are already normalized by normalize.py, use them directly
+	if source == "normalized":
+		return raw_records
+	# Otherwise, flatten code_blocks entries for react or stackoverflow crawls
 	normalized = []
 	for rec in raw_records:
-		code_blocks = rec.get("code_blocks", None)
-		crawl_id = rec.get("crawl_id", None)
-		if code_blocks:
-			for idx, block in enumerate(code_blocks):
+		code_blocks = rec.get("code_blocks")
+		crawl_id = rec.get("crawl_id")
+		if isinstance(code_blocks, list) and code_blocks:
+			for block in code_blocks:
 				item = {
 					"crawl_id": crawl_id,
-					"type": source if source else rec.get("source", "stackoverflow"),
+					"type": source,
 					"explanation": block.get("explanation", rec.get("explanation", "")),
 					"code": block.get("code", ""),
 					"tags": rec.get("tags", []),
 					"link": rec.get("url", rec.get("link", "")),
-					"body": rec.get("body_markdown", rec.get("body_html", "")) or ""
+					# preserve code_language if available
+					"code_language": block.get("code_language", None),
 				}
 				normalized.append(item)
 		else:
@@ -93,14 +98,14 @@ def normalize_records(raw_records, source="react_code_example"):
 				"code": rec.get("code", ""),
 				"tags": rec.get("tags", []),
 				"link": rec.get("url", rec.get("link", "")),
-				"body": rec.get("body_markdown", rec.get("body_html", "")) or ""
+				"code_language": rec.get("code_language", None),
 			}
 			normalized.append(item)
 	return normalized
 
 
 # --- Define the missing upsert_file function ---
-def upsert_file(json_path, source="react_code_example"):
+def upsert_file(json_path, source="normalized", target_collection=None):
 	import time
 	
 	with open(json_path, "r", encoding="utf-8") as f:
@@ -111,11 +116,19 @@ def upsert_file(json_path, source="react_code_example"):
 	MONGODB_URI = read_env_key("MONGODB_URI")
 	client = MongoClient(MONGODB_URI)
 	db = client.get_default_database()
-	collection = db[source]
+	# Sử dụng target_collection nếu được cung cấp, nếu không sử dụng source làm tên collection
+	collection_name = target_collection if target_collection else source
+	collection = db[collection_name]
 
-	for item in tqdm(records, desc="Upserting to MongoDB", unit="item"):
-		# Gộp metadata và embedding vào document
-		doc = dict(item)
+	
+	# Tạo unique index cho crawl_id
+	collection.create_index("crawl_id", unique=True)
+	
+	# Xử lý tất cả records với bulk operations để tăng hiệu suất
+	operations = []
+	batch_size = 50  # Giảm batch size vì phải gọi embedding API
+	
+	for item in tqdm(records, desc="Generating embeddings and preparing upsert", unit="item"):
 		explanation = item.get("explanation", "")
 		code = item.get("code", "")
 
@@ -143,14 +156,31 @@ def upsert_file(json_path, source="react_code_example"):
 			print(f"Error generating embedding for item: {item.get('crawl_id')}. Error: {e}")
 			embedding = [0.0] * 1024  # Default embedding in case of error
 
+		doc = dict(item)
 		doc["embedding"] = embedding
-		crawl_id = doc.get("crawl_id", None)
-
+		crawl_id = doc.get("crawl_id")
+		
 		if crawl_id:
-			collection.update_one({"crawl_id": crawl_id}, {"$set": doc}, upsert=True)
-		else:
-			collection.insert_one(doc)
-
+			# Sử dụng UpdateOne với upsert để tránh trùng lặp
+			operations.append(
+				UpdateOne(
+					{"crawl_id": crawl_id},
+					{"$set": doc},
+					upsert=True
+				)
+			)
+		
+		# Thực hiện bulk write khi đạt batch_size
+		if len(operations) >= batch_size:
+			result = collection.bulk_write(operations)
+			operations = []
+			time.sleep(0.1)  # Tránh rate limit của Gemini API
+	
+	# Xử lý batch cuối cùng
+	if operations:
+		result = collection.bulk_write(operations)
+		print(f"Final batch: {result.upserted_count} inserted, {result.modified_count} updated")
+		
 	client.close()
 
 
@@ -159,10 +189,8 @@ def main():
 	GEMINI_API_KEY = read_env_key("GEMINI_API_KEY")
 	genai.configure(api_key=GEMINI_API_KEY)
 
-	# Upsert normalized.json nếu tồn tại
-	
-	upsert_file("normalized.json", source="normalized")
-	
+	upsert_file("normalized.json", source="normalized", target_collection="normalized")
+
 
 if __name__ == "__main__":
 	main()
