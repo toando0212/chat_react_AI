@@ -1,3 +1,0 @@
-# Chỉ cho phép file Python, ignore tất cả các file khác
-*
-!*.py
