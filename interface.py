@@ -1,39 +1,47 @@
 import gradio as gr
-from chatbot import ask_groq, build_context, find_top_k, get_embedding, resize_embedding, read_env_key
-from pymongo import MongoClient
+from chatbot import get_chatbot_response
 
-# Setup MongoDB connection once
-MONGODB_URI = read_env_key("MONGODB_URI")
-client = MongoClient(MONGODB_URI)
-db = client.get_default_database()
-collection = db["normalized"]
+def chatbot_gradio(message, history, topk=5, model="llama3-70b-8192"):
+    """
+    Hàm xử lý chat với lịch sử cho Gradio
+    history: list of [user_msg, bot_msg] pairs
+    """
+    try:
+        # Chuyển đổi history của Gradio sang format cho chatbot
+        chat_history = []
+        for user_msg, bot_msg in history:
+            if user_msg:
+                chat_history.append({"role": "user", "content": user_msg})
+            if bot_msg:
+                chat_history.append({"role": "assistant", "content": bot_msg})
+        
+        # Lấy phản hồi từ chatbot
+        answer, context_info, updated_chat_history = get_chatbot_response(
+            message, chat_history, topk, model
+        )
+        
+        return answer
+    except Exception as e:
+        return f"❌ Lỗi: {str(e)}"
 
-def chatbot_gradio(question, topk=5, model="llama3-70b-8192"):
-    query_emb = get_embedding(question)
-    query_emb = resize_embedding(query_emb, 1024)
-    results = find_top_k(query_emb, collection, k=topk)
-    context = build_context(results)
-    answer = ask_groq(question, context, model=model)
-    # Show top context for transparency, including type
-    context_display = "\n\n".join([
-        f"--- Context #{i+1} (type={doc.get('type','?')}, similarity={score:.3f}) ---\nExplanation: {doc.get('explanation')}\nCode: {doc.get('code')}\nLink: {doc.get('link')}"
-        for i, (score, doc) in enumerate(results)
-    ])
-    return answer, context_display
-
-demo = gr.Interface(
+# Tạo interface Gradio với ChatInterface
+demo = gr.ChatInterface(
     fn=chatbot_gradio,
-    inputs=[
-        gr.Textbox(label="Your question", lines=2),
-        gr.Slider(1, 10, value=5, step=1, label="Top K context"),
+    additional_inputs=[
+        gr.Slider(1, 10, value=5, step=1, label="Top K Context"),
         gr.Dropdown(["llama3-70b-8192"], value="llama3-70b-8192", label="Groq Model")
     ],
-    outputs=[
-        gr.Textbox(label="Chatbot Answer", lines=8),
-        gr.Textbox(label="Top Contexts", lines=10)
+    title="🤖 ReactJS Chatbot (Gradio Version)",
+    description="Ask any ReactJS question. The bot maintains conversation history and searches relevant context.",
+    examples=[
+        "How to create a Todo app in React?",
+        "What is useState hook?",
+        "How to handle forms in React?",
+        "Explain useEffect with examples"
     ],
-    title="ReactJS Chatbot (Groq + Gemini + MongoDB)",
-    description="Ask any ReactJS/StackOverflow question. The bot will search the most relevant code/context and answer using Groq LLM."
+    retry_btn="🔄 Thử lại",
+    undo_btn="↩️ Hoàn tác",
+    clear_btn="🗑️ Xóa lịch sử"
 )
 
 def main():
