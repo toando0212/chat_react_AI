@@ -47,18 +47,39 @@ def cosine_similarity(a, b):
         return 0.0
     return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
-def find_top_k(query_embedding, collection, k=10):
-    # Lấy tất cả embedding từ MongoDB (có thể tối ưu bằng vector index/pinecone)
-    docs = list(collection.find({}, {"embedding": 1, "explanation": 1, "code": 1, "link": 1, "_id": 0}))
-    scored = []
-    for doc in docs:
+def find_top_k(query_embedding, collection, k=10, ratio_stackoverflow=0.7, min_score=0.5):
+    # Lấy top k từ mỗi type theo tỉ lệ
+    k_so = max(1, int(k * ratio_stackoverflow))
+    k_re = max(1, k - k_so)
+    # StackOverflow
+    docs_so = list(collection.find({"type": "stackoverflow"}, {"type": 1, "embedding": 1, "explanation": 1, "code": 1, "link": 1, "_id": 0}))
+    scored_so = []
+    for doc in docs_so:
         emb = doc.get("embedding")
         if not emb:
             continue
         score = cosine_similarity(query_embedding, emb)
-        scored.append((score, doc))
-    scored.sort(reverse=True, key=lambda x: x[0])
-    return scored[:k]
+        if score >= min_score:
+            scored_so.append((score, doc))
+    scored_so.sort(reverse=True, key=lambda x: x[0])
+    # React Example
+    docs_re = list(collection.find({"type": "react_example"}, {"type": 1, "embedding": 1, "explanation": 1, "code": 1, "link": 1, "_id": 0}))
+    scored_re = []
+    for doc in docs_re:
+        emb = doc.get("embedding")
+        if not emb:
+            continue
+        score = cosine_similarity(query_embedding, emb)
+        if score >= min_score:
+            scored_re.append((score, doc))
+    scored_re.sort(reverse=True, key=lambda x: x[0])
+    # Lấy top k mỗi loại
+    top_so = scored_so[:k_so]
+    top_re = scored_re[:k_re]
+    # Gộp lại và sort lại theo similarity
+    merged = top_so + top_re
+    merged.sort(reverse=True, key=lambda x: x[0])
+    return merged[:k]
 
 def main():
     parser = argparse.ArgumentParser(description="Query chatbot with embedding search")
@@ -82,9 +103,9 @@ def main():
     query_emb = get_embedding(query)
     query_emb = resize_embedding(query_emb, 1024)
 
-    # Tìm top 8 kết quả gần nhất
+    # Tìm top 10 kết quả gần nhất
     results = find_top_k(query_emb, collection, k=8)
-    print("\nTop 5 kết quả gần nhất:")
+    print("\nTop 10 kết quả gần nhất:")
     for i, (score, doc) in enumerate(results, 1):
         print(f"\n--- Kết quả #{i} (similarity={score:.3f}) ---")
         print(f"Giải thích: {doc.get('explanation')}")

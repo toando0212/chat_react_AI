@@ -19,8 +19,10 @@ def ask_groq(question, context, model="llama3-70b-8192"):
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
+    with open("prompt.txt", "r", encoding="utf-8") as f:
+        system_prompt = f.read().strip()
     messages = [
-        {"role": "system", "content": "U are an AI assistant with experience in ReactJs. Answer based on the provided context."},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"}
     ]
     payload = {
