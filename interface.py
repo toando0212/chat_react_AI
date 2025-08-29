@@ -2,24 +2,17 @@ import gradio as gr
 from chatbot import get_chatbot_response
 
 def chatbot_gradio(message, history, topk=5, model="llama3-70b-8192"):
-    """
-    Hàm xử lý chat với lịch sử cho Gradio
-    history: list of [user_msg, bot_msg] pairs
-    """
     try:
-        # Chuyển đổi history của Gradio sang format cho chatbot
+        # Giới hạn 100 từ
+        if len(message.split()) > 100:
+            return "❌ Lỗi: Tin nhắn vượt quá 100 từ!"
         chat_history = []
         for user_msg, bot_msg in history:
             if user_msg:
                 chat_history.append({"role": "user", "content": user_msg})
             if bot_msg:
                 chat_history.append({"role": "assistant", "content": bot_msg})
-        
-        # Lấy phản hồi từ chatbot
-        answer, context_info, updated_chat_history = get_chatbot_response(
-            message, chat_history, topk, model
-        )
-        
+        answer, context_info, _ = get_chatbot_response(message, chat_history, topk, model)
         return answer
     except Exception as e:
         return f"❌ Lỗi: {str(e)}"
@@ -33,15 +26,7 @@ demo = gr.ChatInterface(
     ],
     title="🤖 ReactJS Chatbot (Gradio Version)",
     description="Ask any ReactJS question. The bot maintains conversation history and searches relevant context.",
-    examples=[
-        "How to create a Todo app in React?",
-        "What is useState hook?",
-        "How to handle forms in React?",
-        "Explain useEffect with examples"
-    ],
-    retry_btn="🔄 Thử lại",
-    undo_btn="↩️ Hoàn tác",
-    clear_btn="🗑️ Xóa lịch sử"
+    
 )
 
 def main():

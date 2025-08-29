@@ -5,12 +5,35 @@ import os
 import json
 import argparse
 
-def read_env_key(key_name, env_file="key.env"):
-    with open(env_file, "r", encoding="utf-8") as f:
-        for line in f:
-            if line.startswith(f"{key_name}="):
-                return line.strip().split("=", 1)[1]
-    return None
+import toml
+
+# Ưu tiên st.secrets (Streamlit Cloud), sau đó đến biến môi trường, rồi file .env/.toml
+try:
+    import streamlit as st
+    def get_secret(key):
+        return st.secrets.get(key) or os.environ.get(key)
+except ImportError:
+    def get_secret(key, env_file="key.env", toml_file="streamlit.toml"):
+        # 1. Biến môi trường
+        if key in os.environ:
+            return os.environ[key]
+        # 2. Đọc từ streamlit.toml nếu có
+        try:
+            config = toml.load(toml_file)
+            secrets = config.get("secrets", {})
+            if key in secrets:
+                return secrets[key]
+        except Exception:
+            pass
+        # 3. Đọc từ file .env local nếu có
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith(f"{key}="):
+                        return line.strip().split("=", 1)[1]
+        except FileNotFoundError:
+            pass
+        return None
 
 def get_embedding(text, model="models/embedding-001"):
     response = genai.embed_content(model=model, content=[text])
@@ -87,10 +110,10 @@ def main():
     args = parser.parse_args()
 
     # Cấu hình Gemini
-    GEMINI_API_KEY = read_env_key("GEMINI_API_KEY")
+    GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
     genai.configure(api_key=GEMINI_API_KEY)
     # Kết nối MongoDB
-    MONGODB_URI = read_env_key("MONGODB_URI")
+    MONGODB_URI = get_secret("MONGODB_URI")
     client = MongoClient(MONGODB_URI)
     db = client.get_default_database()
     collection = db["normalized"]

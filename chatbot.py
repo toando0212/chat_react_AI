@@ -1,9 +1,11 @@
+import streamlit as st
 from query import * 
 import argparse
 import requests
 from pymongo import MongoClient
 import google.generativeai as genai
-GEMINI_API_KEY = read_env_key("GEMINI_API_KEY")
+
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
 def build_context(docs):
@@ -13,31 +15,25 @@ def build_context(docs):
     return context
 
 def ask_groq(question, context, chat_history=None, model="llama3-70b-8192"):
-    """
+    '''
     Hàm gọi Groq API với chat history để duy trì cuộc hội thoại
-    chat_history: list of {"role": "user/assistant", "content": "..."}
-    """
+    chat_history: list of {"role": "user/assistant", "content": "...}
+    '''
     try:
-        api_key = read_env_key("GROQ_API_KEY")
-        url = read_env_key("GROQ_URL")
+        api_key = get_secret("GROQ_API_KEY")
+        url = get_secret("GROQ_URL")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
         with open("prompt.txt", "r", encoding="utf-8") as f:
             system_prompt = f.read().strip()
-        
         # Tạo messages với system prompt + chat history + context hiện tại
         messages = [{"role": "system", "content": system_prompt}]
-        
-        # Thêm lịch sử chat (nếu có)
         if chat_history:
             messages.extend(chat_history)
-        
-        # Thêm câu hỏi hiện tại với context
         current_message = f"Context:\n{context}\n\nQuestion: {question}"
         messages.append({"role": "user", "content": current_message})
-        
         payload = {
             "model": model,
             "messages": messages,
@@ -57,50 +53,38 @@ def ask_groq(question, context, chat_history=None, model="llama3-70b-8192"):
         return f"❌ Lỗi hệ thống: {error_msg}"
 
 def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-8192"):
-    """
+    '''
     Hàm chính để lấy phản hồi từ chatbot với chat history
     Returns: (answer, context_info, updated_chat_history)
-    """
+    '''
     try:
         # Kết nối MongoDB
-        MONGODB_URI = read_env_key("MONGODB_URI")
+        MONGODB_URI = get_secret("MONGODB_URI")
         client = MongoClient(MONGODB_URI)
         db = client.get_default_database()
         collection = db["normalized"]
-        
-        # Tạo embedding và tìm context
-        query_emb = get_embedding(question)
-        query_emb = resize_embedding(query_emb, 1024)
-        results = find_top_k(query_emb, collection, k=topk)
-        context = build_context(results)
-        
-        # Lấy phản hồi từ Groq với chat history
+        # Tìm kiếm tài liệu liên quan nhất
+        query = {"question": question}
+        docs = collection.find(query).sort("_id", -1).limit(topk)
+        docs = list(docs)
+        # Nếu không tìm thấy tài liệu nào
+        if not docs:
+            return "Xin lỗi, tôi không tìm thấy thông tin liên quan.", "", chat_history
+        # Xây dựng ngữ cảnh từ tài liệu
+        context = build_context(docs)
+        # Gọi Groq để lấy phản hồi
         answer = ask_groq(question, context, chat_history, model)
-        
-        # Cập nhật chat history
+        # Lưu lịch sử trò chuyện
         if chat_history is None:
             chat_history = []
-        
-        new_chat_history = chat_history.copy()
-        new_chat_history.append({"role": "user", "content": question})
-        new_chat_history.append({"role": "assistant", "content": answer})
-        
-        # Giới hạn chat history (chỉ giữ 10 tin nhắn gần nhất)
-        if len(new_chat_history) > 20:  # 10 cặp user-assistant
-            new_chat_history = new_chat_history[-20:]
-        
-        # Tạo thông tin context để hiển thị
-        context_info = "\n\n".join([
-            f"--- Context #{i+1} (similarity={score:.3f}) ---\nExplanation: {doc.get('explanation', 'N/A')}\nCode: {doc.get('code', 'N/A')}\nLink: {doc.get('link', 'N/A')}"
-            for i, (score, doc) in enumerate(results)
-        ])
-        
-        return answer, context_info, new_chat_history
-        
+        chat_history.append({"role": "user", "content": question})
+        chat_history.append({"role": "assistant", "content": answer})
+        # Trả về câu trả lời, ngữ cảnh và lịch sử trò chuyện đã cập nhật
+        return answer, context, chat_history
     except Exception as e:
-        error_msg = f"❌ Lỗi hệ thống: {str(e)}"
+        error_msg = f"Exception in get_chatbot_response: {str(e)}"
         print(error_msg)
-        return error_msg, "Không thể lấy context do lỗi", chat_history or []
+        return f"❌ Lỗi hệ thống: {error_msg}", "", chat_history
 
 def main():
     parser = argparse.ArgumentParser(description="Chatbot embedding + Groq")
