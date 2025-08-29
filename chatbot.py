@@ -61,7 +61,8 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
         # Kết nối MongoDB
         MONGODB_URI = get_secret("MONGODB_URI")
         client = MongoClient(MONGODB_URI)
-        db = client.get_default_database()
+        # Chỉ định rõ tên database thay vì dùng get_default_database()
+        db = client["chatcodeai"]
         collection = db["normalized"]
         # Tìm kiếm tài liệu liên quan nhất
         query = {"question": question}
