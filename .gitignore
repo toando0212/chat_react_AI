@@ -1,0 +1,16 @@
+# Ignore everything by default
+*
+
+# Keep .gitignore
+!.gitignore
+
+# Keep all directories so we can whitelist files inside
+!*/
+
+# Keep Python files in any directory
+!*.py
+!**/*.py
+
+# Ignore node_modules folders entirely
+node_modules/
+test_cases/node_modules/
