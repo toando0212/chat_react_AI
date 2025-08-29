@@ -1,5 +1,5 @@
 streamlit
 pymongo
 requests
-google-generative-ai
+google-generativeai
 tqdm
