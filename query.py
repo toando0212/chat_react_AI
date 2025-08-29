@@ -11,7 +11,31 @@ import toml
 try:
     import streamlit as st
     def get_secret(key):
-        return st.secrets.get(key) or os.environ.get(key)
+        # 1. Ưu tiên lấy từ st.secrets nếu có
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and key in st.secrets:
+                return st.secrets[key]
+        except Exception:
+            pass
+
+        # 2. Nếu không có, lấy từ biến môi trường
+        value = os.environ.get(key)
+        if value:
+            return value
+
+        # 3. Nếu vẫn không có, thử đọc từ file .env
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            value = os.environ.get(key)
+            if value:
+                return value
+        except Exception:
+            pass
+
+        # 4. Nếu vẫn không có, trả về None
+        return None
 except ImportError:
     def get_secret(key, env_file="key.env", toml_file="streamlit.toml"):
         # 1. Biến môi trường

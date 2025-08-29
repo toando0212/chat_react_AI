@@ -61,17 +61,18 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
         # Kết nối MongoDB
         MONGODB_URI = get_secret("MONGODB_URI")
         client = MongoClient(MONGODB_URI)
-        # Chỉ định rõ tên database thay vì dùng get_default_database()
         db = client["chatcodeai"]
         collection = db["normalized"]
-        # Tìm kiếm tài liệu liên quan nhất
-        query = {"question": question}
-        docs = collection.find(query).sort("_id", -1).limit(topk)
-        docs = list(docs)
+
+        # Tìm kiếm tài liệu liên quan nhất bằng vector embedding
+        query_emb = get_embedding(question)
+        query_emb = resize_embedding(query_emb, 1024)
+        docs = find_top_k(query_emb, collection, k=topk)
+
         # Nếu không tìm thấy tài liệu nào
         if not docs:
             return "Xin lỗi, tôi không tìm thấy thông tin liên quan.", "", chat_history
-        # Xây dựng ngữ cảnh từ tài liệu
+        # Xây dựng ngữ cảnh từ tài liệu - docs đã là danh sách (score, doc)
         context = build_context(docs)
         # Gọi Groq để lấy phản hồi
         answer = ask_groq(question, context, chat_history, model)

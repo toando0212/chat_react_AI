@@ -3,3 +3,6 @@ pymongo
 requests
 google-generativeai
 tqdm
+numpy
+python-dotenv
+gradio
