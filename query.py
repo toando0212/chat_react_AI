@@ -87,46 +87,36 @@ def resize_embedding(embedding, target_dim=1024):
     else:
         return embedding[:target_dim]
 
-def cosine_similarity(a, b):
-    a = np.array(a)
-    b = np.array(b)
-    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
-        return 0.0
-    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
-
-def find_top_k(query_embedding, collection, k=10, ratio_stackoverflow=0.7, min_score=0.5):
-    # Lấy top k từ mỗi type theo tỉ lệ
-    k_so = max(1, int(k * ratio_stackoverflow))
-    k_re = max(1, k - k_so)
-    # StackOverflow
-    docs_so = list(collection.find({"type": "stackoverflow"}, {"type": 1, "embedding": 1, "explanation": 1, "code": 1, "link": 1, "_id": 0}))
-    scored_so = []
-    for doc in docs_so:
-        emb = doc.get("embedding")
-        if not emb:
-            continue
-        score = cosine_similarity(query_embedding, emb)
-        if score >= min_score:
-            scored_so.append((score, doc))
-    scored_so.sort(reverse=True, key=lambda x: x[0])
-    # React Example
-    docs_re = list(collection.find({"type": "react_example"}, {"type": 1, "embedding": 1, "explanation": 1, "code": 1, "link": 1, "_id": 0}))
-    scored_re = []
-    for doc in docs_re:
-        emb = doc.get("embedding")
-        if not emb:
-            continue
-        score = cosine_similarity(query_embedding, emb)
-        if score >= min_score:
-            scored_re.append((score, doc))
-    scored_re.sort(reverse=True, key=lambda x: x[0])
-    # Lấy top k mỗi loại
-    top_so = scored_so[:k_so]
-    top_re = scored_re[:k_re]
-    # Gộp lại và sort lại theo similarity
-    merged = top_so + top_re
-    merged.sort(reverse=True, key=lambda x: x[0])
-    return merged[:k]
+# Hàm mới dùng Vector Search
+def find_top_k(query_embedding, collection, k=8):
+    pipeline = [
+        {
+            "$vectorSearch": {
+                "index": "vector_index",
+                "path": "embedding",
+                "queryVector": query_embedding,
+                "numCandidates": 100,
+                "limit": k
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "type": 1,
+                "explanation": 1,
+                "code": 1,
+                "link": 1,
+                "score": {"$meta": "vectorSearchScore"}
+            }
+        }
+    ]
+    
+    try:
+        results = list(collection.aggregate(pipeline))
+        return results
+    except Exception as e:
+        print(f"❌ Lỗi khi tìm kiếm: {str(e)}")
+        return []
 
 def main():
     parser = argparse.ArgumentParser(description="Query chatbot with embedding search")
@@ -135,9 +125,17 @@ def main():
 
     # Cấu hình Gemini
     GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
+    if not GEMINI_API_KEY:
+        print("❌ Không tìm thấy GEMINI_API_KEY")
+        return
     genai.configure(api_key=GEMINI_API_KEY)
+    
     # Kết nối MongoDB
     MONGODB_URI = get_secret("MONGODB_URI")
+    if not MONGODB_URI:
+        print("❌ Không tìm thấy MONGODB_URI")
+        return
+    
     client = MongoClient(MONGODB_URI)
     db = client.get_default_database()
     collection = db["normalized"]
@@ -147,17 +145,22 @@ def main():
         query = args.question
     else:
         query = input("Nhập câu hỏi của bạn: ")
+    
+    print("🔄 Đang tạo embedding...")
     query_emb = get_embedding(query)
     query_emb = resize_embedding(query_emb, 1024)
 
-    # Tìm top 10 kết quả gần nhất
+    print("🔍 Đang tìm kiếm...")
+    # Tìm top 8 kết quả gần nhất
     results = find_top_k(query_emb, collection, k=8)
-    print("\nTop 10 kết quả gần nhất:")
-    for i, (score, doc) in enumerate(results, 1):
-        print(f"\n--- Kết quả #{i} (similarity={score:.3f}) ---")
+    print("\nTop 8 kết quả gần nhất:")
+    for i, doc in enumerate(results, 1):
+        print(f"\n--- Kết quả #{i} ---")
         print(f"Giải thích: {doc.get('explanation')}")
         print(f"Code: {doc.get('code')}")
         print(f"Link: {doc.get('link')}")
+        print(f"Loại: {doc.get('type', 'N/A')}")
+        print(f"Điểm: {doc.get('score', 0):.4f}")  # Hiển thị điểm tương đồng
 
 if __name__ == "__main__":
     main()

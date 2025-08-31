@@ -10,7 +10,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 def build_context(docs):
     context = ""
-    for i, (_, doc) in enumerate(docs, 1):
+    for i, doc in enumerate(docs, 1):
         context += f"[Doc {i}]\nGiải thích: {doc.get('explanation')}\nCode: {doc.get('code')}\nLink: {doc.get('link')}\n\n"
     return context
 
@@ -72,7 +72,7 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
         # Nếu không tìm thấy tài liệu nào
         if not docs:
             return "Xin lỗi, tôi không tìm thấy thông tin liên quan.", "", chat_history
-        # Xây dựng ngữ cảnh từ tài liệu - docs đã là danh sách (score, doc)
+        # Xây dựng ngữ cảnh từ tài liệu - docs là list các dict
         context = build_context(docs)
         # Gọi Groq để lấy phản hồi
         answer = ask_groq(question, context, chat_history, model)
