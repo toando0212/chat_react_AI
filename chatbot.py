@@ -21,18 +21,7 @@ def get_secret(key):
 
 
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
-# Debug log GEMINI key and configure
-try:
-    # Log key length and prefix
-    st.write(f"[DEBUG] GEMINI_API_KEY loaded ({len(GEMINI_API_KEY)} chars): {GEMINI_API_KEY[:5]}...{GEMINI_API_KEY[-5:]}")
-    print(f"[DEBUG] GEMINI_API_KEY: {GEMINI_API_KEY}")
-    genai.configure(api_key=GEMINI_API_KEY)
-    st.write("[DEBUG] genai.configure succeeded")
-    print("[DEBUG] genai.configure succeeded")
-except Exception as e:
-    st.error(f"[DEBUG] genai.configure error: {e}")
-    print(f"[DEBUG] genai.configure error: {e}")
-    raise
+genai.configure(api_key=GEMINI_API_KEY)
 
 # Cache MongoDB client globally (Streamlit Cloud safe)
 @st.cache_resource
@@ -46,15 +35,12 @@ def get_mongodb_client():
             connectTimeoutMS=5000,
             socketTimeoutMS=5000
         )
-        # Try a quick server_info to force connection
-        client.server_info()
-        st.write("✅ Đã kết nối MongoDB thành công")
-        print("✅ Đã kết nối MongoDB thành công")
-        return client
+    # Try a quick server_info to force connection
+    client.server_info()
+    return client
     except Exception as e:
-        st.error(f"❌ Lỗi kết nối MongoDB: {e}")
-        print(f"❌ Lỗi kết nối MongoDB: {e}")
-        raise
+    st.error(f"❌ Lỗi kết nối MongoDB: {e}")
+    raise
 
 # Optionally cache embedding generation
 @lru_cache(maxsize=1000)
@@ -76,18 +62,10 @@ def ask_groq(question, context, chat_history=None, model="llama3-70b-8192"):
         # Load and debug log GROQ credentials
         api_key = get_secret("GROQ_API_KEY")
         url = get_secret("GROQ_URL")
-        # Debug log API key and URL
-        st.write(f"[DEBUG] GROQ_API_KEY loaded ({len(api_key)} chars): {api_key[:5]}...{api_key[-5:]}")
-        print(f"[DEBUG] GROQ_API_KEY: {api_key}")
-        st.write(f"[DEBUG] GROQ_URL: {url}")
-        print(f"[DEBUG] GROQ_URL: {url}")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
-        # Debug log headers (masked)
-        st.write(f"[DEBUG] Request headers: Authorization=Bearer {'*' * 5}{api_key[-5:]} ...")
-        print(f"[DEBUG] Request to {url} with headers {headers}")
         # Load system prompt
         with open("prompt.txt", "r", encoding="utf-8") as f:
             system_prompt = f.read().strip()
@@ -103,10 +81,7 @@ def ask_groq(question, context, chat_history=None, model="llama3-70b-8192"):
             "temperature": 0.2,
             "max_tokens": 1024
         }
-        # Send request and debug response status
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        st.write(f"[DEBUG] GROQ response status: {resp.status_code}")
-        print(f"[DEBUG] GROQ response status: {resp.status_code}, body: {resp.text}")
+    resp = requests.post(url, headers=headers, json=payload, timeout=60)
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"]
         else:
@@ -125,11 +100,7 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
     '''
     try:
         # Dùng MongoDB client đã cache
-        st.write("[DEBUG] Đang lấy MongoDB client...")
-        print("[DEBUG] Đang lấy MongoDB client...")
         client = get_mongodb_client()
-        st.write("[DEBUG] Đã lấy được client, truy cập DB...")
-        print("[DEBUG] Đã lấy được client, truy cập DB...")
         db = client["chatcodeai"]
         collection = db["normalized"]
 
@@ -140,8 +111,6 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
 
         # Nếu không tìm thấy tài liệu nào
         if not docs:
-            st.warning("[DEBUG] Không tìm thấy tài liệu liên quan.")
-            print("[DEBUG] Không tìm thấy tài liệu liên quan.")
             return "Xin lỗi, tôi không tìm thấy thông tin liên quan.", "", chat_history
         # Xây dựng ngữ cảnh từ tài liệu - docs là list các dict
         context = build_context(docs)
@@ -153,8 +122,6 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
         chat_history.append({"role": "user", "content": question})
         chat_history.append({"role": "assistant", "content": answer})
         # Trả về câu trả lời, ngữ cảnh và lịch sử trò chuyện đã cập nhật
-        st.write("[DEBUG] Trả về kết quả thành công.")
-        print("[DEBUG] Trả về kết quả thành công.")
         return answer, context, chat_history
     except Exception as e:
         error_msg = f"Exception in get_chatbot_response: {str(e)}"
