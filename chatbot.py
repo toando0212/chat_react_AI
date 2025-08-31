@@ -1,12 +1,32 @@
 import streamlit as st
-from query import * 
+from query import *
+from functools import lru_cache
 import argparse
 import requests
 from pymongo import MongoClient
 import google.generativeai as genai
 
+
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
+
+# Cache MongoDB client globally (Streamlit Cloud safe)
+@st.cache_resource
+def get_mongodb_client():
+    MONGODB_URI = get_secret("MONGODB_URI")
+    client = MongoClient(
+        MONGODB_URI,
+        maxPoolSize=10,
+        serverSelectionTimeoutMS=5000,
+        connectTimeoutMS=5000,
+        socketTimeoutMS=5000
+    )
+    return client
+
+# Optionally cache embedding generation
+@lru_cache(maxsize=1000)
+def get_embedding_cached(text):
+    return get_embedding(text)
 
 def build_context(docs):
     context = ""
@@ -58,14 +78,13 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
     Returns: (answer, context_info, updated_chat_history)
     '''
     try:
-        # Kết nối MongoDB
-        MONGODB_URI = get_secret("MONGODB_URI")
-        client = MongoClient(MONGODB_URI)
+        # Dùng MongoDB client đã cache
+        client = get_mongodb_client()
         db = client["chatcodeai"]
         collection = db["normalized"]
 
-        # Tìm kiếm tài liệu liên quan nhất bằng vector embedding
-        query_emb = get_embedding(question)
+        # Tìm kiếm tài liệu liên quan nhất bằng vector embedding (có cache)
+        query_emb = get_embedding_cached(question)
         query_emb = resize_embedding(query_emb, 1024)
         docs = find_top_k(query_emb, collection, k=topk)
 
