@@ -35,12 +35,12 @@ def get_mongodb_client():
             connectTimeoutMS=5000,
             socketTimeoutMS=5000
         )
-    # Try a quick server_info to force connection
-    client.server_info()
-    return client
+        # Try a quick server_info to force connection
+        client.server_info()
+        return client
     except Exception as e:
-    st.error(f"❌ Lỗi kết nối MongoDB: {e}")
-    raise
+        st.error(f"❌ Lỗi kết nối MongoDB: {e}")
+        raise
 
 # Optionally cache embedding generation
 @lru_cache(maxsize=1000)
@@ -120,7 +120,6 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
     except Exception as e:
         error_msg = f"Exception in get_chatbot_response: {str(e)}"
         st.error(error_msg)
-        print(error_msg)
         return f"❌ Lỗi hệ thống: {error_msg}", "", chat_history
 
 def main():
