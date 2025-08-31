@@ -3,7 +3,7 @@
 
 # Keep .gitignore
 !.gitignore
-!requirements.txt
+!*.txt
 # Keep all directories so we can whitelist files inside
 !*/
 
