@@ -5,6 +5,19 @@ import argparse
 import requests
 from pymongo import MongoClient
 import google.generativeai as genai
+import os
+
+
+def get_secret(key):
+    # Ưu tiên lấy từ st.secrets (Streamlit Cloud)
+    if hasattr(st, "secrets") and key in st.secrets:
+        return st.secrets[key]
+    # Fallback về biến môi trường (local development)
+    value = os.getenv(key)
+    if value is not None:
+        return value
+    # Nếu không có, raise exception rõ ràng
+    raise RuntimeError(f"Secret '{key}' not found in st.secrets or environment variables!")
 
 
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
