@@ -14,14 +14,23 @@ genai.configure(api_key=GEMINI_API_KEY)
 @st.cache_resource
 def get_mongodb_client():
     MONGODB_URI = get_secret("MONGODB_URI")
-    client = MongoClient(
-        MONGODB_URI,
-        maxPoolSize=10,
-        serverSelectionTimeoutMS=5000,
-        connectTimeoutMS=5000,
-        socketTimeoutMS=5000
-    )
-    return client
+    try:
+        client = MongoClient(
+            MONGODB_URI,
+            maxPoolSize=10,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=5000
+        )
+        # Try a quick server_info to force connection
+        client.server_info()
+        st.write("✅ Đã kết nối MongoDB thành công")
+        print("✅ Đã kết nối MongoDB thành công")
+        return client
+    except Exception as e:
+        st.error(f"❌ Lỗi kết nối MongoDB: {e}")
+        print(f"❌ Lỗi kết nối MongoDB: {e}")
+        raise
 
 # Optionally cache embedding generation
 @lru_cache(maxsize=1000)
@@ -79,7 +88,11 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
     '''
     try:
         # Dùng MongoDB client đã cache
+        st.write("[DEBUG] Đang lấy MongoDB client...")
+        print("[DEBUG] Đang lấy MongoDB client...")
         client = get_mongodb_client()
+        st.write("[DEBUG] Đã lấy được client, truy cập DB...")
+        print("[DEBUG] Đã lấy được client, truy cập DB...")
         db = client["chatcodeai"]
         collection = db["normalized"]
 
@@ -90,6 +103,8 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
 
         # Nếu không tìm thấy tài liệu nào
         if not docs:
+            st.warning("[DEBUG] Không tìm thấy tài liệu liên quan.")
+            print("[DEBUG] Không tìm thấy tài liệu liên quan.")
             return "Xin lỗi, tôi không tìm thấy thông tin liên quan.", "", chat_history
         # Xây dựng ngữ cảnh từ tài liệu - docs là list các dict
         context = build_context(docs)
@@ -101,9 +116,12 @@ def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-
         chat_history.append({"role": "user", "content": question})
         chat_history.append({"role": "assistant", "content": answer})
         # Trả về câu trả lời, ngữ cảnh và lịch sử trò chuyện đã cập nhật
+        st.write("[DEBUG] Trả về kết quả thành công.")
+        print("[DEBUG] Trả về kết quả thành công.")
         return answer, context, chat_history
     except Exception as e:
         error_msg = f"Exception in get_chatbot_response: {str(e)}"
+        st.error(error_msg)
         print(error_msg)
         return f"❌ Lỗi hệ thống: {error_msg}", "", chat_history
 
