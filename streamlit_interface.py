@@ -1,3 +1,8 @@
+import os
+# Disable GCP metadata service to prevent MongoDB driver from calling Google Compute metadata
+os.environ['GCE_METADATA_HOST'] = ''
+os.environ['GCE_METADATA_ROOT'] = ''
+os.environ['DISABLE_GCE_METADATA_SERVICE'] = 'true'
 import streamlit as st
 from chatbot import get_chatbot_response
 import json
