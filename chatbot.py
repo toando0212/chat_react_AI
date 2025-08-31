@@ -21,7 +21,18 @@ def get_secret(key):
 
 
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
+# Debug log GEMINI key and configure
+try:
+    # Log key length and prefix
+    st.write(f"[DEBUG] GEMINI_API_KEY loaded ({len(GEMINI_API_KEY)} chars): {GEMINI_API_KEY[:5]}...{GEMINI_API_KEY[-5:]}")
+    print(f"[DEBUG] GEMINI_API_KEY: {GEMINI_API_KEY}")
+    genai.configure(api_key=GEMINI_API_KEY)
+    st.write("[DEBUG] genai.configure succeeded")
+    print("[DEBUG] genai.configure succeeded")
+except Exception as e:
+    st.error(f"[DEBUG] genai.configure error: {e}")
+    print(f"[DEBUG] genai.configure error: {e}")
+    raise
 
 # Cache MongoDB client globally (Streamlit Cloud safe)
 @st.cache_resource
