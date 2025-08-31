@@ -73,15 +73,25 @@ def ask_groq(question, context, chat_history=None, model="llama3-70b-8192"):
     chat_history: list of {"role": "user/assistant", "content": "...}
     '''
     try:
+        # Load and debug log GROQ credentials
         api_key = get_secret("GROQ_API_KEY")
         url = get_secret("GROQ_URL")
+        # Debug log API key and URL
+        st.write(f"[DEBUG] GROQ_API_KEY loaded ({len(api_key)} chars): {api_key[:5]}...{api_key[-5:]}")
+        print(f"[DEBUG] GROQ_API_KEY: {api_key}")
+        st.write(f"[DEBUG] GROQ_URL: {url}")
+        print(f"[DEBUG] GROQ_URL: {url}")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json"
         }
+        # Debug log headers (masked)
+        st.write(f"[DEBUG] Request headers: Authorization=Bearer {'*' * 5}{api_key[-5:]} ...")
+        print(f"[DEBUG] Request to {url} with headers {headers}")
+        # Load system prompt
         with open("prompt.txt", "r", encoding="utf-8") as f:
             system_prompt = f.read().strip()
-        # Tạo messages với system prompt + chat history + context hiện tại
+        # Create messages with system prompt + chat history + context
         messages = [{"role": "system", "content": system_prompt}]
         if chat_history:
             messages.extend(chat_history)
@@ -93,7 +103,10 @@ def ask_groq(question, context, chat_history=None, model="llama3-70b-8192"):
             "temperature": 0.2,
             "max_tokens": 1024
         }
+        # Send request and debug response status
         resp = requests.post(url, headers=headers, json=payload, timeout=60)
+        st.write(f"[DEBUG] GROQ response status: {resp.status_code}")
+        print(f"[DEBUG] GROQ response status: {resp.status_code}, body: {resp.text}")
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"]
         else:
