@@ -58,40 +58,34 @@ def ask_groq(question, context, chat_history=None, model="llama3-70b-8192"):
     Hàm gọi Groq API với chat history để duy trì cuộc hội thoại
     chat_history: list of {"role": "user/assistant", "content": "...}
     '''
-    try:
-        # Load and debug log GROQ credentials
-        api_key = get_secret("GROQ_API_KEY")
-        url = get_secret("GROQ_URL")
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        # Load system prompt
-        with open("prompt.txt", "r", encoding="utf-8") as f:
-            system_prompt = f.read().strip()
-        # Create messages with system prompt + chat history + context
-        messages = [{"role": "system", "content": system_prompt}]
-        if chat_history:
-            messages.extend(chat_history)
-        current_message = f"Context:\n{context}\n\nQuestion: {question}"
-        messages.append({"role": "user", "content": current_message})
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": 0.2,
-            "max_tokens": 1024
-        }
+    # Load GROQ credentials
+    api_key = get_secret("GROQ_API_KEY")
+    url = get_secret("GROQ_URL")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    # Load system prompt
+    with open("prompt.txt", "r", encoding="utf-8") as f:
+        system_prompt = f.read().strip()
+    # Create messages with system prompt + chat history + context
+    messages = [{"role": "system", "content": system_prompt}]
+    if chat_history:
+        messages.extend(chat_history)
+    current_message = f"Context:\n{context}\n\nQuestion: {question}"
+    messages.append({"role": "user", "content": current_message})
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.2,
+        "max_tokens": 1024
+    }
     resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"]
-        else:
-            error_msg = f"Groq API error: {resp.status_code} {resp.text}"
-            print(error_msg)
-            return f"❌ Lỗi API: {error_msg}"
-    except Exception as e:
-        error_msg = f"Exception in ask_groq: {str(e)}"
-        print(error_msg)
-        return f"❌ Lỗi hệ thống: {error_msg}"
+    if resp.status_code == 200:
+        return resp.json()["choices"][0]["message"]["content"]
+    else:
+        error_msg = f"Groq API error: {resp.status_code} {resp.text}"
+        return f"❌ Lỗi API: {error_msg}"
 
 def get_chatbot_response(question, chat_history=None, topk=5, model="llama3-70b-8192"):
     '''
