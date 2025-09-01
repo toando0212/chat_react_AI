@@ -8,3 +8,7 @@ python-dotenv
 gradio
 cerebras-cloud-sdk
 tiktoken
+fastapi
+uvicorn
+pymongo
+python-dotenv
