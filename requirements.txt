@@ -7,3 +7,4 @@ numpy
 python-dotenv
 gradio
 cerebras-cloud-sdk
+tiktoken
