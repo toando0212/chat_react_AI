@@ -4,6 +4,7 @@
 # Keep .gitignore
 !.gitignore
 !*.txt
+!Procfile
 # Keep all directories so we can whitelist files inside
 !*/
 
