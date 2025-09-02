@@ -92,3 +92,9 @@ async def chat(
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.getenv("PORT", 8000))  # Lấy port từ biến môi trường, mặc định là 8000
+    uvicorn.run(app, host="0.0.0.0", port=port)
