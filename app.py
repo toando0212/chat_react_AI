@@ -3,9 +3,19 @@ from pydantic import BaseModel
 from chatbot import get_chatbot_response, remove_think_tags
 import re
 import os
+from fastapi.middleware.cors import CORSMiddleware
 
 # Initialize FastAPI app
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Hoặc thay "*" bằng danh sách các origin cụ thể
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Debug: print environment variables for keys
 print("[DEBUG] GEMINI_API_KEY:", os.getenv("GEMINI_API_KEY"))
