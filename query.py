@@ -48,7 +48,7 @@ def resize_embedding(embedding, target_dim=1024):
     return embedding + [0.0] * (target_dim - current_dim) if current_dim < target_dim else embedding[:target_dim]
 
 # Vector search
-async def find_top_k(query_embedding, collection, k=8):
+async def find_top_k(query_embedding, collection, k=5):
     """Find top-k documents using vector search asynchronously."""
     pipeline = [
         {
