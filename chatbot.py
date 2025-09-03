@@ -1,165 +1,147 @@
 import re
-# Loại bỏ reasoning trace/thẻ <think> khỏi phản hồi
-def remove_think_tags(text):
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-import streamlit as st
-from query import *
-from functools import lru_cache
-import argparse
-import requests
-import importlib.util
-from pymongo import MongoClient
-import google.generativeai as genai
-
 import os
+import asyncio
+import importlib.util
+from functools import lru_cache
 from dotenv import load_dotenv
+from pymongo import MongoClient
+import motor.motor_asyncio
+import google.generativeai as genai
+from query import *
+import streamlit as st
+
+# Load environment variables
 load_dotenv()
 
-
 def get_secret(key):
-    # Ưu tiên lấy từ biến môi trường (local .env)
+    """Retrieve secrets from environment variables or Streamlit secrets."""
     value = os.getenv(key)
-    if value is not None:
+    if value:
         return value
-    # Nếu không có, thử lấy từ st.secrets (Streamlit Cloud)
     try:
         if hasattr(st, "secrets") and key in st.secrets:
             return st.secrets[key]
     except Exception:
         pass
-    # Nếu không có, raise exception rõ ràng
     raise RuntimeError(f"Secret '{key}' not found in environment variables or st.secrets!")
 
+# Configure Gemini API
+genai.configure(api_key=get_secret("GEMINI_API_KEY"))
 
-GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
+# MongoDB client management
+_mongodb_client = None
 
-# Cache MongoDB client globally (Streamlit Cloud safe)
-@st.cache_resource
-def get_mongodb_client():
-    MONGODB_URI = get_secret("MONGODB_URI")
-    try:
-        client = MongoClient(
-            MONGODB_URI,
-            maxPoolSize=10,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000,
-            socketTimeoutMS=5000
-        )
-        # Try a quick server_info to force connection
-        client.server_info()
-        return client
-    except Exception as e:
-        st.error(f"❌ Lỗi kết nối MongoDB: {e}")
-        raise
+async def get_mongodb_client():
+    """Initialize and return a MongoDB client."""
+    global _mongodb_client
+    if _mongodb_client is None:
+        try:
+            _mongodb_client = motor.motor_asyncio.AsyncIOMotorClient(
+                get_secret("MONGODB_URI"),
+                maxPoolSize=10,
+                serverSelectionTimeoutMS=5000,
+                connectTimeoutMS=5000,
+                socketTimeoutMS=5000
+            )
+            await _mongodb_client.server_info()
+        except Exception as e:
+            st.error(f"❌ MongoDB connection error: {e}")
+            raise
+    return _mongodb_client
 
-# Optionally cache embedding generation
 @lru_cache(maxsize=1000)
 def get_embedding_cached(text):
+    """Cache embeddings for faster retrieval."""
     return get_embedding(text)
 
 def build_context(docs):
-    context = ""
-    for i, doc in enumerate(docs, 1):
-        context += f"[Doc {i}]\nGiải thích: {doc.get('explanation')}\nCode: {doc.get('code')}\nLink: {doc.get('link')}\n\n"
-    return context
+    """Construct context from retrieved documents."""
+    return "\n".join(
+        f"[Doc {i}]\nExplanation: {doc.get('explanation')}\nCode: {doc.get('code')}\nLink: {doc.get('link')}\n"
+        for i, doc in enumerate(docs, 1)
+    )
 
-
-# Hàm gọi Cerebras API với chat history để duy trì cuộc hội thoại
-def ask_cerebras(question, context, chat_history=None, model="llama-4-scout-17b-16e-instruct"):
-    '''
-    Hàm gọi Cerebras API với chat history để duy trì cuộc hội thoại
-    chat_history: list of {"role": "user/assistant", "content": "..."}
-    '''
-    # Import cerebras lib nếu có, nếu không báo lỗi rõ ràng
+async def ask_cerebras(question, context, chat_history=None, model="llama-4-scout-17b-16e-instruct"):
+    """Call Cerebras API with chat history."""
     try:
         spec = importlib.util.find_spec("cerebras.cloud.sdk")
         if spec is None:
-            raise ImportError("Bạn cần cài đặt thư viện cerebras-cloud-sdk: pip install cerebras-cloud-sdk")
+            raise ImportError("Install cerebras-cloud-sdk: pip install cerebras-cloud-sdk")
         from cerebras.cloud.sdk import Cerebras
     except ImportError as e:
-        return f"❌ Lỗi: {e}"
+        return f"❌ Error: {e}"
 
     api_key = get_secret("CEREBRAS_API_KEY")
-    # Load system prompt
     with open("prompt.txt", "r", encoding="utf-8") as f:
         system_prompt = f.read().strip()
-    # Tạo messages với system prompt + chat history + context
+
     messages = [{"role": "system", "content": system_prompt}]
     if chat_history:
         messages.extend(chat_history)
-    current_message = f"Context:\n{context}\n\nQuestion: {question}"
-    messages.append({"role": "user", "content": current_message})
+    messages.append({"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"})
+
     try:
         client = Cerebras(api_key=api_key)
         response = client.chat.completions.create(
             messages=messages,
             model=model,
             temperature=0.2,
-            max_tokens=1024
+            max_tokens=2048
         )
-        # Trả về nội dung trả lời
         return response.choices[0].message.content
     except Exception as e:
-        return f"❌ Lỗi gọi Cerebras API: {e}"
+        return f"❌ Cerebras API error: {e}"
 
-def get_chatbot_response(question, chat_history=None, topk=5, model="gpt-oss-120b"):
-    '''
-    Hàm chính để lấy phản hồi từ chatbot với chat history
-    Returns: (answer, context_info, updated_chat_history)
-    '''
-    # Dùng MongoDB client đã cache
-    client = get_mongodb_client()
-    db = client["chatcodeai"]
-    collection = db["normalized"]
+async def get_chatbot_response(question, chat_history=None, topk=5, model="gpt-oss-120b"):
+    """Main function to get chatbot response."""
+    client = await get_mongodb_client()
+    collection = client["chatcodeai"]["normalized"]
 
-    # Tìm kiếm tài liệu liên quan nhất bằng vector embedding (có cache)
-    query_emb = get_embedding_cached(question)
-    query_emb = resize_embedding(query_emb, 1024)
-    docs = find_top_k(query_emb, collection, k=topk)
+    chat_history = chat_history or []
+    query_emb = resize_embedding(get_embedding_cached(question), 1024)
+    docs = await find_top_k(query_emb, collection, k=topk)
 
-    # Nếu không tìm thấy tài liệu nào
     if not docs:
-        return "Xin lỗi, tôi không tìm thấy thông tin liên quan.", "", chat_history
-    # Xây dựng ngữ cảnh từ tài liệu - docs là list các dict
+        return "Sorry, no relevant information found.", "", chat_history
+
     context = build_context(docs)
-    # Gọi Cerebras để lấy phản hồi
-    answer = ask_cerebras(question, context, chat_history, model)
-    # Lưu lịch sử trò chuyện
-    if chat_history is None:
-        chat_history = []
-    chat_history.append({"role": "user", "content": question})
-    chat_history.append({"role": "assistant", "content": answer})
-    # Trả về câu trả lời, ngữ cảnh và lịch sử trò chuyện đã cập nhật
+    answer = await ask_cerebras(question, context, chat_history, model)
+
+    chat_history.extend([
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer}
+    ])
     return answer, context, chat_history
 
-def main():
+async def main():
+    """Entry point for chatbot interaction."""
+    import argparse
     parser = argparse.ArgumentParser(description="Chatbot embedding + Cerebras")
-    parser.add_argument('--question', type=str, help='Câu hỏi đầu vào')
+    parser.add_argument('--question', type=str, help='Input question')
     args = parser.parse_args()
 
     chat_history = []
 
     if args.question:
-        # Single question mode
-        answer, context_info, _ = get_chatbot_response(args.question, chat_history)
-        answer = remove_think_tags(answer)
-        print(answer)
+        answer, _, _ = await get_chatbot_response(args.question, chat_history)
+        print(remove_think_tags(answer))
     else:
-        # Interactive chat mode
-        print("🤖 Chào bạn! Tôi là chatbot ReactJS (Cerebras). Gõ 'quit' để thoát.")
+        print("🤖 Hello! Type 'quit' to exit.")
         while True:
-            question = input("\n👤 Bạn: ").strip()
+            question = input("\n👤 You: ").strip()
             if question.lower() in ['quit', 'exit', 'q']:
-                print("👋 Tạm biệt!")
+                print("👋 Goodbye!")
                 break
             if not question:
                 continue
 
-            print("🔍 Đang tìm kiếm và xử lý...")
-            answer, context_info, chat_history = get_chatbot_response(question, chat_history, args.topk, args.model)
-            answer = remove_think_tags(answer)
-            print(f"\n🤖 Bot: {answer}")
+            print("🔍 Processing...")
+            answer, _, chat_history = await get_chatbot_response(question, chat_history)
+            print(f"\n🤖 Bot: {remove_think_tags(answer)}")
+
+def remove_think_tags(text):
+    """Remove reasoning trace or <think> tags from the response."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

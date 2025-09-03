@@ -41,13 +41,16 @@ def minify_code(code: str) -> str:
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(
     question: str = Form(...),
+    model: str = Form(...),  # Nhận model từ FE
     file: UploadFile = File(None)
 ):
     try:
-        # Debug: print incoming question and file info
+        # Debug: print incoming question, model, and file info
         print(f"[DEBUG] Received question: {question}")
+        print(f"[DEBUG] Received model: {model}")
         if file:
             print(f"[DEBUG] Received file: {file.filename}, size: {file.size if hasattr(file, 'size') else 'unknown'}")
+
         # Process file if provided
         file_content = None
         if file:
@@ -73,8 +76,9 @@ async def chat(
         print(f"[DEBUG] Combined input: {combined_input[:200]}...")
 
         # Get chatbot response
-        answer, context, updated_chat_history = get_chatbot_response(
-            question=combined_input
+        answer, context, updated_chat_history = await get_chatbot_response(
+            question=combined_input,
+            model=model  # Truyền model vào hàm get_chatbot_response
         )
         # Remove <think> tags from the answer
         answer = remove_think_tags(answer)
